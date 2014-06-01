@@ -45,6 +45,11 @@ static struct bios_smap smap;
  */
 #define	HEAP_MIN	(3 * 1024 * 1024)
 
+/*
+ * The minimal address of the top of extended memory
+ */
+#define MEMTOP_MIN	(64 * 1024 * 1024)
+
 void
 bios_getmem(void)
 {
@@ -122,6 +127,21 @@ bios_getmem(void)
 
     /* Set memtop to actual top of memory */
     memtop = memtop_copyin = 0x100000 + bios_extmem;
+
+    /*
+     * If the size of extended memory is too small for bootloader,
+     * force the size set to the predefined minimum.
+     */
+    if (memtop < MEMTOP_MIN) {
+	memtop = memtop_copyin = MEMTOP_MIN;
+	/*
+	 * Adjust the start address and the size of high heap.
+	 */
+	if (high_heap_base < memtop) {
+	    high_heap_size -= memtop - high_heap_base;
+	    high_heap_base = memtop;
+	}
+    }
 
     /*
      * If we have extended memory and did not find a suitable heap
