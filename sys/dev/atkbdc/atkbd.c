@@ -431,7 +431,7 @@ atkbd_init(int unit, keyboard_t **kbdp, void *arg, int flags)
 	}
 	if (!KBD_IS_INITIALIZED(kbd) && !(flags & KB_CONF_PROBE_ONLY)) {
 		kbd->kb_config = flags & ~KB_CONF_PROBE_ONLY;
-		if (KBD_HAS_DEVICE(kbd)
+		if (!KBD_HAS_DEVICE(kbd)
 		    && init_keyboard(state->kbdc, &kbd->kb_type, kbd->kb_config)
 		    && (kbd->kb_config & KB_CONF_FAIL_IF_NO_KBD)) {
 			kbd_unregister(kbd);
@@ -443,6 +443,7 @@ atkbd_init(int unit, keyboard_t **kbdp, void *arg, int flags)
 		delay[0] = kbd->kb_delay1;
 		delay[1] = kbd->kb_delay2;
 		atkbd_ioctl(kbd, KDSETREPEAT, (caddr_t)delay);
+		KBD_FOUND_DEVICE(kbd);
 		KBD_INIT_DONE(kbd);
 	}
 	if (!KBD_IS_CONFIGURED(kbd)) {
@@ -1299,13 +1300,42 @@ init_keyboard(KBDC kbdc, int *type, int flags)
 		return EIO;
 	}
 
+	codeset = -1;
+
+	/* reset keyboard hardware */
+	if (!(flags & KB_CONF_NO_RESET) && !reset_kbd(kbdc)) {
+		/*
+		 * KEYBOARD ERROR
+		 * Keyboard reset may fail either because the keyboard
+		 * doen't exist, or because the keyboard doesn't pass
+		 * the self-test, or the keyboard controller on the
+		 * motherboard and the keyboard somehow fail to shake hands.
+		 * It is just possible, particularly in the last case,
+		 * that the keyboard controller may be left in a hung state.
+		 * test_controller() and test_kbd_port() appear to bring
+		 * the keyboard controller back (I don't know why and how,
+		 * though.)
+		 */
+		empty_both_buffers(kbdc, 10);
+		test_controller(kbdc);
+		test_kbd_port(kbdc);
+		/*
+		 * We could disable the keyboard port and interrupt... but, 
+		 * the keyboard may still exist (see above). 
+		 */
+		set_controller_command_byte(kbdc, 0xff, c);
+		kbdc_lock(kbdc, FALSE);
+		if (bootverbose)
+			printf("atkbd: failed to reset the keyboard.\n");
+		return EIO;
+	}
+
 	/* 
 	 * Check if we have an XT keyboard before we attempt to reset it. 
 	 * The procedure assumes that the keyboard and the controller have 
 	 * been set up properly by BIOS and have not been messed up 
 	 * during the boot process.
 	 */
-	codeset = -1;
 	if (flags & KB_CONF_ALT_SCANCODESET)
 		/* the user says there is a XT keyboard */
 		codeset = 1;
@@ -1343,34 +1373,6 @@ init_keyboard(KBDC kbdc, int *type, int flags)
 	if (bootverbose)
 		printf("atkbd: keyboard ID 0x%x (%d)\n", id, *type);
 
-	/* reset keyboard hardware */
-	if (!(flags & KB_CONF_NO_RESET) && !reset_kbd(kbdc)) {
-		/*
-		 * KEYBOARD ERROR
-		 * Keyboard reset may fail either because the keyboard
-		 * doen't exist, or because the keyboard doesn't pass
-		 * the self-test, or the keyboard controller on the
-		 * motherboard and the keyboard somehow fail to shake hands.
-		 * It is just possible, particularly in the last case,
-		 * that the keyboard controller may be left in a hung state.
-		 * test_controller() and test_kbd_port() appear to bring
-		 * the keyboard controller back (I don't know why and how,
-		 * though.)
-		 */
-		empty_both_buffers(kbdc, 10);
-		test_controller(kbdc);
-		test_kbd_port(kbdc);
-		/*
-		 * We could disable the keyboard port and interrupt... but, 
-		 * the keyboard may still exist (see above). 
-		 */
-		set_controller_command_byte(kbdc, 0xff, c);
-		kbdc_lock(kbdc, FALSE);
-		if (bootverbose)
-			printf("atkbd: failed to reset the keyboard.\n");
-		return EIO;
-	}
-
 	/*
 	 * Allow us to set the XT_KEYBD flag so that keyboards
 	 * such as those on the IBM ThinkPad laptop computers can be used
@@ -1401,6 +1403,15 @@ init_keyboard(KBDC kbdc, int *type, int flags)
 	}
 	c |= KBD_TRANSLATION;
 #endif
+	/*
+	 * Some keyboards require a SETLEDS command to be sent after
+	 * the reset command before they will send keystrokes to us
+	 * (Acer C720).
+	 */
+	if (send_kbd_command_and_data(kbdc, KBDC_SET_LEDS, 0) != KBD_ACK) {
+		printf("atkbd: setleds failed\n");
+	}
+	send_kbd_command(kbdc, KBDC_ENABLE_KBD);
 
 	/* enable the keyboard port and intr. */
 	if (!set_controller_command_byte(kbdc, 
