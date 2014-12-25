@@ -34,6 +34,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/module.h>
 #include <sys/mutex.h>
 #include <sys/bus.h> 
+#include <sys/malloc.h>
 
 #include <dev/smbus/smbconf.h>
 #include <dev/smbus/smbus.h>
@@ -49,6 +50,11 @@ static int smbus_probe(device_t);
 static int smbus_attach(device_t);
 static int smbus_detach(device_t);
 
+/*
+ * Bus interface
+ */
+static void smbus_driver_added(device_t dev, driver_t *driver);
+
 static device_method_t smbus_methods[] = {
         /* device interface */
         DEVMETHOD(device_probe,         smbus_probe),
@@ -57,6 +63,7 @@ static device_method_t smbus_methods[] = {
 
 	/* bus interface */
 	DEVMETHOD(bus_add_child,	bus_generic_add_child),
+	DEVMETHOD(bus_driver_added,	smbus_driver_added),
 
 	DEVMETHOD_END
 };
@@ -107,6 +114,31 @@ smbus_detach(device_t dev)
 	mtx_destroy(&sc->lock);
 
 	return (0);
+}
+
+static void
+smbus_driver_added(device_t dev, driver_t *driver)
+{
+	int i, nchildren, err;
+	device_t *children;
+	device_printf(dev, "driver %s added\n", driver->name);
+
+	err = device_get_children(dev, &children, &nchildren);
+	if (err) {
+		device_printf(dev, "device_get_children returned %d\n", err);
+		return;
+	}
+	for (i = 0; i < nchildren; ++i) {
+		device_t child = children[i];
+		/* TODO: implement */
+		const char *child_name = device_get_nameunit(child);
+		device_printf(dev, "device_get_state(%s) = %d\n",
+		              child_name, device_get_state(child));
+		device_printf(dev, "device %s is %s\n", child_name,
+		              device_is_enabled(child) ?
+		                "enabled" : "disabled");
+	}
+	free(children, M_TEMP);
 }
 
 void
