@@ -38,6 +38,7 @@ __FBSDID("$FreeBSD$");
 
 #include <dev/smbus/smbconf.h>
 #include <dev/smbus/smbus.h>
+#include "smbus_if.h"
 
 /*
  * Autoconfiguration and support routines for System Management bus
@@ -49,6 +50,8 @@ __FBSDID("$FreeBSD$");
 static int smbus_probe(device_t);
 static int smbus_attach(device_t);
 static int smbus_detach(device_t);
+
+static void smbus_probe_device(device_t dev, u_char addr);
 
 /*
  * Bus interface
@@ -93,10 +96,14 @@ smbus_probe(device_t dev)
 static int
 smbus_attach(device_t dev)
 {
+	unsigned char addr;
 	struct smbus_softc *sc = device_get_softc(dev);
 
 	mtx_init(&sc->lock, device_get_nameunit(dev), "smbus", MTX_DEF);
-	bus_generic_probe(dev);
+        device_add_child(dev, NULL, device_get_unit(dev));
+	for (addr = 16; addr < 112; ++addr) {
+		smbus_probe_device(dev, addr);
+	}
 	bus_generic_attach(dev);
 
 	return (0);
@@ -144,6 +151,25 @@ smbus_driver_added(device_t dev, driver_t *driver)
 void
 smbus_generic_intr(device_t dev, u_char devaddr, char low, char high, int err)
 {
+}
+
+static void
+smbus_probe_device(device_t dev, u_char addr)
+{
+	int error;
+	char cmd;
+	char buf[2];
+
+	cmd = 0x01;
+
+	error = smbus_trans(dev, addr, cmd, SMB_TRANS_NOCNT,
+			    NULL, 0, buf, 1, NULL);
+	if (error == 0) {
+		device_printf(dev, "Probed address 0x%02x\n", addr);
+		/* device_add_child / specific */
+		device_add_child(dev, NULL,
+				 (device_get_unit(dev) << 11) | 0x0400 | addr);
+	}
 }
 
 MODULE_VERSION(smbus, SMBUS_MODVER);
