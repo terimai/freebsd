@@ -141,9 +141,15 @@ smbus_driver_added(device_t dev, driver_t *driver)
 		const char *child_name = device_get_nameunit(child);
 		device_printf(dev, "device_get_state(%s) = %d\n",
 		              child_name, device_get_state(child));
+		if (device_get_state(child) != DS_NOTPRESENT)
+			continue;
 		device_printf(dev, "device %s is %s\n", child_name,
 		              device_is_enabled(child) ?
 		                "enabled" : "disabled");
+		if (!device_is_enabled(child))
+			continue;
+
+		device_probe_and_attach(child);
 	}
 	free(children, M_TEMP);
 }
