@@ -100,7 +100,7 @@ smbus_attach(device_t dev)
 	struct smbus_softc *sc = device_get_softc(dev);
 
 	mtx_init(&sc->lock, device_get_nameunit(dev), "smbus", MTX_DEF);
-        device_add_child(dev, NULL, device_get_unit(dev));
+        device_add_child(dev, NULL, -1);
 	for (addr = 16; addr < 112; ++addr) {
 		smbus_probe_device(dev, addr);
 	}
@@ -167,7 +167,7 @@ smbus_probe_device(device_t dev, u_char addr)
 	if (error == 0) {
 		device_printf(dev, "Probed address 0x%02x\n", addr);
 		/* device_add_child / specific */
-		device_add_child(dev, NULL,
+		device_add_child(dev, "smb",
 				 (device_get_unit(dev) << 11) | 0x0400 | addr);
 	}
 }
